@@ -1,26 +1,60 @@
 import re, sys
 import base64
 import json
-import xml.etree.ElementTree as ET
 
-def from_hex(hex_string):
+def to_hex(hex_string):
     bytes_object = bytes.fromhex(hex_string)
     ascii_string = bytes_object.decode("utf-8")
     return ascii_string
 
-def read_data(line):
+def start_item(line):
+    regex = r"<item><type>(([A-Fa-f0-9]{2}){4})</type><code>(([A-Fa-f0-9]{2}){4})</code><length>(\d*)</length>"
+    matches = re.findall(regex, line)
+    typ = to_hex(matches[0][0])
+    code = to_hex(matches[0][2])
+    length = int(matches[0][4])
+    return (typ, code, length)
+
+def start_data(line):
+    try:
+        assert line == '<data encoding="base64">\n'
+    except AssertionError:
+        if line.startswith("<data"):
+            return 0
+        return -1
+    return 0
+
+def read_data(line, length):
+    idx = line.find('</item>')
+    b64Size = 0
+    if idx > -1:
+        return base64.b64decode(line[:idx]).decode('utf-8')
+
+    b64size = 4*((length+2)/3)
+
     data = ""
     try:
-        data = base64.b64decode(line).decode('utf-8')
+        data = base64.b64decode(line[:b64size]).decode('utf-8')
     except TypeError:
+        data = ""
         pass
+    print ("Decoded: " + data + ", base64: " + line)
     return data
+
+# def read_data(line, length):
+#     b64size = 4*((length+2)/3);
+#     try:
+#         data = base64.b64decode(line[:b64size])
+#     except TypeError:
+#         data = "##fel##"
+#         pass
+#     return data
 
 def guessImageMime(magic):
 
-    if magic.startswith(b'\xff\xd8'):
+    if magic.startswith('\xff\xd8'):
         return 'image/jpeg'
-    elif magic.startswith(b'\x89PNG\r\n\x1a\r'):
+    elif magic.startswith('\x89PNG\r\n\x1a\r'):
         return 'image/png'
     else:
         return "image/jpg"
@@ -33,41 +67,18 @@ if __name__ == "__main__":
         line = sys.stdin.readline()
         if not line:    #EOF
             break
-        
         sys.stdout.flush()
-
         if not line.startswith("<item>"):
             continue
-        lines = line
+        typ, code, length = start_item(line)
 
-        while line.find("</item>") < 0:
-            line = sys.stdin.readline()
-            lines = lines + line
-        #print ("Lines: " + lines)
-
-        root = ET.fromstring(lines)
-        typ = from_hex(root.find("type").text)
-        code = from_hex(root.find("code").text)
-        length = int(root.find("length").text)
-        dataEl = root.find("data")
-
-        if (dataEl == None ):
-            continue
-
-        #data = dataEl.text
-        
-        pict = None
         data = ""
-        if (typ =="ssnc" and code == "PICT"):
-            pict = dataEl.text.lstrip()
-            pictData = base64.b64decode(pict)
-            mime = guessImageMime(pictData)
-            print ( json.dumps({"Image":{ "Data": pict, "Mime": mime} }) )
-            sys.stdout.flush()
-            continue
+        if (length > 0):
+            r = start_data(sys.stdin.readline())
+            if (r == -1):
+                continue
+            data = read_data(sys.stdin.readline(), length)
 
-        data = read_data(dataEl.text.strip())
-        
         # Everything read
         if (typ == "core"):
             if (code == "asal"):
@@ -80,8 +91,8 @@ if __name__ == "__main__":
                 metadata['Genre'] = data
             elif (code == "minm"):
                 metadata['Title'] = data
-            elif (code == "ascp"):
-                metadata['Composer'] = data
+            #elif (code == "ascp"):
+            #    metadata['Composer'] = data
             #elif (code == "asdt"):
             #    metadata['File Kind'] = data
             #elif (code == "assn"):
@@ -91,15 +102,7 @@ if __name__ == "__main__":
         if (typ == "ssnc" and code == "snam"):
             metadata['snam'] = data
         if (typ == "ssnc" and code == "prgr"):
-            #metadata['prgr'] = data
-            prgr = data.split("/")
-            if (len(prgr) == 3):
-                pData ={} 
-                pData['Start'] = prgr[0]
-                pData['Current'] = prgr[1]
-                pData['End'] = prgr[2]
-                metadata['Progress']= pData
-
+            metadata['prgr'] = data
         if (typ == "ssnc" and code == "pfls"):
             metadata = {}
             print ( json.dumps({}) )
@@ -112,6 +115,13 @@ if __name__ == "__main__":
             metadata['pause'] = False
         if (typ == "ssnc" and code == "pbeg"):
             metadata['pause'] = False
+        if (typ == "ssnc" and code == "PICT"):
+            if (len(data) == 0):
+                print ( json.dumps({"image": ""}) )
+            else:
+                mime = guessImageMime(data)
+                print ( json.dumps({"image": "data:" + mime + ";base64," + base64.b64encode(data)}) )
+            sys.stdout.flush()
         if (typ == "ssnc" and code == "mden"):
             print ( json.dumps(metadata) )
             sys.stdout.flush()
