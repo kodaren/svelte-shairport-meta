@@ -1,12 +1,11 @@
-import re, sys
+import sys
 import base64
 import json
 import xml.etree.ElementTree as ET
 
 def from_hex(hex_string):
     bytes_object = bytes.fromhex(hex_string)
-    ascii_string = bytes_object.decode("utf-8")
-    return ascii_string
+    return bytes_object.decode("ascii")
 
 def read_data(line):
     data = ""
@@ -62,7 +61,7 @@ if __name__ == "__main__":
             pict = dataEl.text.lstrip()
             pictData = base64.b64decode(pict)
             mime = guessImageMime(pictData)
-            print ( json.dumps({"Image":{ "Data": pict, "Mime": mime} }) )
+            print ( json.dumps({"CoverArt":{ "Base64Encoded": pict, "Mime": mime } }) )
             sys.stdout.flush()
             continue
 
